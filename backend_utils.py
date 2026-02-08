@@ -10,10 +10,32 @@ import google.genai as genai
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()   # 👈 MUST be before os.getenv
+
+key = os.getenv("GEMINI_API_KEY")
+st.write("DEBUG KEY:", key[:6] if key else "NOT SET")
+
+
+
 DB_NAME = "brand_monitor.db"
 
 
-client = genai.Client(api_key="AIzaSyA1bfPZCH2LyE9WtTr6kmJ2YZYs_jTR8os")
+
+
+
+
+
+
+API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise RuntimeError("❌ GEMINI_API_KEY not found in environment variables")
+
+client = genai.Client(api_key=API_KEY)
+
+
 
 
 # ================= DATABASE =================
