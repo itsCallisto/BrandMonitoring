@@ -68,26 +68,28 @@ with st.sidebar:
             progress = st.progress(0, text="Analyzing mentions...")
             total = len(pending_df)
 
+            texts = pending_df["text"].tolist()
+            
+            analyses = bu.batch_analyze_texts(texts)
+            
             for i, row in enumerate(pending_df.itertuples()):
-                sentiment = bu.get_sentiment(row.text)
-                topic = bu.get_topic(row.text)
-                urgency = bu.get_urgency(row.text)
-
-                # if sentiment and topic and urgency:
-                #     bu.update_mention_analysis(
-                #         row.id, sentiment, topic, urgency
-                #     )
+                if i < len(analyses):
+                    analysis = analyses[i]
+                    sentiment = analysis.get("sentiment", "Neutral")
+                    topic = analysis.get("topic", "Unknown")
+                    urgency = analysis.get("urgency", "Low")
+                else:
+                    sentiment = "Neutral"
+                    topic = "Unknown"
+                    urgency = "Low"
+                
                 bu.update_mention_analysis(
-                    row.id,
-                     sentiment or "Neutral",
-                    topic or "Unknown",
-                        urgency or "Low"
-                        )
-
+                    row.id, sentiment, topic, urgency
+                )
 
                 progress.progress(
                     (i + 1) / total,
-                    text=f"Analyzing {i + 1}/{total}"
+                    text=f"Updating {i + 1}/{total}"
                 )
 
             progress.empty()
