@@ -1,6 +1,7 @@
 import sqlite3
 import time
 from datetime import datetime
+import json
 
 import pandas as pd
 import requests
@@ -230,6 +231,57 @@ def generate_report_summary(df):
 
 
 # ================= ANALYSIS =================
+
+
+def batch_analyze_texts(texts):
+    """
+    Analyze multiple texts in a single API call using Gemini's structured output.
+    Returns a list of dicts: [{"sentiment": str, "topic": str, "urgency": str}, ...]
+    """
+    if not texts:
+        return []
+    
+    texts_with_indices = "\n\n".join([f"[{i}] {text}" for i, text in enumerate(texts)])
+    
+    prompt = f"""
+Analyze each of the following texts for sentiment, topic, and urgency.
+
+For each text [i], provide:
+- sentiment: one of "Positive", "Negative", or "Neutral"
+- topic: main topic in 1-3 words
+- urgency: "High" or "Low" based on how urgent the feedback seems
+
+Output a JSON array of objects, one for each text in order.
+
+Texts:
+{texts_with_indices}
+"""
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'sentiment': {'type': 'string', 'enum': ['Positive', 'Negative', 'Neutral']},
+                            'topic': {'type': 'string'},
+                            'urgency': {'type': 'string', 'enum': ['High', 'Low']}
+                        },
+                        'required': ['sentiment', 'topic', 'urgency']
+                    }
+                }
+            }
+        )
+        results = json.loads(response.text.strip())
+        return results
+    except Exception as e:
+        st.error(f"Batch analysis error: {e}")
+        return [{"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"} for _ in texts]
 
 
 def get_sentiment(text):
