@@ -7,20 +7,15 @@ import pandas as pd
 import requests
 import streamlit as st
 import google.genai as genai
-# import google.generativeai as genai
+import os
+import sys
+
 
 import os
 
 from dotenv import load_dotenv
 
-load_dotenv()   # 👈 MUST be before os.getenv
-
-key = os.getenv("GEMINI_API_KEY")
-st.write("DEBUG KEY:", key[:6] if key else "NOT SET")
-
-
-
-DB_NAME = "brand_monitor.db"
+load_dotenv()  
 
 
 
@@ -28,18 +23,45 @@ DB_NAME = "brand_monitor.db"
 
 
 
+if sys.platform.startswith("win"):
+    
+    DB_NAME = "brand_monitor.db"
+else:
+    
+    DB_NAME = "/tmp/brand_monitor.db"
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+
+
+
+
+
+
+
+
+
+
+import streamlit as st
+
+
+API_KEY = None
+
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    API_KEY = os.getenv("GEMINI_API_KEY")
+
 
 if not API_KEY:
-    raise RuntimeError("❌ GEMINI_API_KEY not found in environment variables")
-
+    st.error("❌ GEMINI_API_KEY not found in Streamlit secrets")
+    st.stop()
 client = genai.Client(api_key=API_KEY)
 
 
 
 
-# ================= DATABASE =================
+
+
+
 
 
 def init_db():
@@ -58,6 +80,7 @@ def init_db():
                 urgency TEXT
             )
         """)
+init_db()
 
 
 def add_mention(brand_name, source, text, url, timestamp):
@@ -86,7 +109,7 @@ def get_all_mentions_as_df(brand_name):
         return df
 
 
-# ================= RAPIDAPI FETCH =================
+
 
 
 def fetch_reddit_mentions(brand_name, subreddits_list):
@@ -104,7 +127,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
             continue
 
         try:
-            # 🔑 THIS IS WHERE THE URL GOES
+           
             url = f"https://www.reddit.com/r/{sub_name}/search.json"
 
             params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
@@ -142,7 +165,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
                     added_count += 1
                     processed_urls.add(post_url)
 
-            time.sleep(1)  # polite delay
+            time.sleep(1)  
 
         except Exception as e:
             st.error(f"Could not fetch from r/{sub_name}: {e}")
@@ -160,7 +183,7 @@ def generate_positive_report_summary(df):
         return "No positive feedback found."
 
     texts = "\n---\n".join(positive_df["text"].tolist())
-    texts = texts[:4000]  # safety limit
+    texts = texts[:4000]  
 
     prompt = f"""
     You are a business analyst.
@@ -230,7 +253,6 @@ def generate_report_summary(df):
         return f"Error generating suggestion summary: {e}"
 
 
-# ================= ANALYSIS =================
 
 
 def batch_analyze_texts(texts):
@@ -295,7 +317,7 @@ Sentiment:"""
     try:
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
 
-        # 🔑 normalize output
+        
         response = response.lower()
 
         if "positive" in response:
@@ -305,7 +327,7 @@ Sentiment:"""
         elif "neutral" in response:
             return "Neutral"
         else:
-            # If unclear, default to Neutral
+            
             return "Neutral"
 
     except Exception as e:
