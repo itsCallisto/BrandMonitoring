@@ -14,8 +14,9 @@ import sys
 import os
 
 from dotenv import load_dotenv
+if os.path.exists(".env"):
 
-load_dotenv()  
+    load_dotenv()  
 
 
 
@@ -29,6 +30,8 @@ if sys.platform.startswith("win"):
 else:
     
     DB_NAME = "/tmp/brand_monitor.db"
+    
+    
 
 
 
@@ -40,7 +43,9 @@ else:
 
 
 
-import streamlit as st
+
+
+
 
 
 API_KEY = None
@@ -54,7 +59,9 @@ except Exception:
 if not API_KEY:
     st.error("❌ GEMINI_API_KEY not found in Streamlit secrets")
     st.stop()
-client = genai.Client(api_key=API_KEY)
+@st.cache_resource
+def get_gemini_client():
+    return genai.Client(api_key=API_KEY)
 
 
 
@@ -80,7 +87,13 @@ def init_db():
                 urgency TEXT
             )
         """)
-init_db()
+
+
+if "db_initialized" not in st.session_state:
+    init_db()
+    st.session_state.db_initialized = True
+
+
 
 
 def add_mention(brand_name, source, text, url, timestamp):
@@ -195,6 +208,7 @@ def generate_positive_report_summary(df):
     """
 
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip()
     except Exception as e:
@@ -220,6 +234,7 @@ def generate_negative_report_summary(df):
     """
 
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip()
     except Exception as e:
@@ -247,6 +262,7 @@ def generate_report_summary(df):
     """
 
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip()
     except Exception as e:
@@ -280,6 +296,7 @@ Texts:
 """
     
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -315,6 +332,7 @@ Text: {text}
 Sentiment:"""
 
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
 
         
@@ -338,6 +356,7 @@ Sentiment:"""
 def get_topic(text):
     prompt = f"Identify the main topic or category of this text in 1-3 words:\n{text}"
     try:
+        client = get_gemini_client()
         return client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
     except:
         return "General"
@@ -346,6 +365,7 @@ def get_topic(text):
 def get_urgency(text):
     prompt = f"Rate the urgency level of this feedback. Reply with only 'High' or 'Low':\n{text}"
     try:
+        client = get_gemini_client()
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
         if "high" in response.lower():
             return "High"
