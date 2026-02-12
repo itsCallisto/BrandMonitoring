@@ -1,4 +1,11 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="AI Reddit Brand Monitor",
+    page_icon="🤖",
+    layout="wide"
+)
+
 import backend_utils as bu
 import plotly.express as px
 import os
@@ -8,12 +15,6 @@ import os
 #     st.stop()
 
 
-
-st.set_page_config(
-    page_title="AI Reddit Brand Monitor",
-    page_icon="🤖",
-    layout="wide"
-)
 
 
 bu.init_db()
