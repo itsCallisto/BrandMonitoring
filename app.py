@@ -3,9 +3,10 @@ import backend_utils as bu
 import plotly.express as px
 import os
 
-if not os.getenv("GEMINI_API_KEY"):
-    st.error("Please set the GEMINI_API_KEY environment variable with your Google Gemini API key.")
-    st.stop()
+# if not os.getenv("GEMINI_API_KEY"):
+#     st.error("Please set the GEMINI_API_KEY environment variable with your Google Gemini API key.")
+#     st.stop()
+
 
 
 st.set_page_config(
