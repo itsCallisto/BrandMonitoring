@@ -139,7 +139,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
         try:
            
-            url = f"https://old.reddit.com/r/{sub_name}/search.json"
+            url = f"https://api.reddit.com/r/{sub_name}/search.json"
 
             params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
 
