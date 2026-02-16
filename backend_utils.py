@@ -120,43 +120,157 @@ def get_all_mentions_as_df(brand_name):
 
 
 
+# def fetch_reddit_mentions(brand_name, subreddits_list):
+#     added_count = 0
+#     processed_urls = set()
+
+#     existing_df = get_all_mentions_as_df(brand_name)
+#     existing_urls = set(existing_df["url"].tolist())
+
+#     # headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
+#     headers = {
+#         "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
+#     }
+
+#     for sub_name in subreddits_list:
+#         sub_name = sub_name.strip()
+#         if not sub_name:
+#             continue
+
+#         try:
+           
+#             # url = f"https://www.reddit.com/r/{sub_name}/search.json"
+#             url = f"https://www.reddit.com/r/{sub_name}/new"
+
+#             # params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
+#             params = {"limit": 25}
+
+#             response = requests.get(url, headers=headers, params=params, timeout=20)
+#             response.raise_for_status()
+
+#             data = response.json()
+#             posts = data.get("data", {}).get("children", [])
+#             # DEBUG START
+#             st.write("DEBUG: Subreddit:", sub_name)
+#             st.write("DEBUG: URL:", url)
+#             st.write("DEBUG: Params:", params)
+#             st.write("DEBUG: Headers:", headers)
+
+#             response = requests.get(url, headers=headers, params=params, timeout=20)
+
+#             st.write("DEBUG: Status Code:", response.status_code)
+
+#             st.write("DEBUG: Response Preview:", response.text[:300])
+
+# # DEBUG END
+
+#             response.raise_for_status()
+
+#             data = response.json()
+
+#             st.write("DEBUG: JSON keys:", list(data.keys()))
+
+#             posts = data.get("data", {}).get("children", [])
+
+            
+#             st.info(f"Found {len(posts)} posts in r/{sub_name}")
+
+#             for item in posts:
+#                 post = item.get("data", {})
+#                 if not isinstance(post, dict):
+#                     continue
+
+#                 permalink = post.get("permalink")
+#                 if not permalink:
+#                     continue
+
+#                 post_url = f"https://www.reddit.com{permalink}"
+
+#                 if post_url in existing_urls or post_url in processed_urls:
+#                     continue
+
+#                 text = f"{post.get('title', '')} {post.get('selftext', '')}"
+#                 timestamp = datetime.fromtimestamp(
+#                     post.get("created_utc", datetime.now().timestamp())
+#                 )
+
+#                 if add_mention(
+#                     brand_name, "Reddit (Public JSON)", text, post_url, timestamp
+#                 ):
+#                     added_count += 1
+#                     processed_urls.add(post_url)
+
+#             time.sleep(1)  
+
+#         except Exception as e:
+#             # st.error(f"Could not fetch from r/{sub_name}: {e}")
+#             st.error(f"Reddit fetch failed for r/{sub_name}")
+#             st.error(str(e))
+#             import traceback
+#             st.error(traceback.format_exc())
+
+#     return added_count
+
+
 def fetch_reddit_mentions(brand_name, subreddits_list):
+
     added_count = 0
     processed_urls = set()
 
     existing_df = get_all_mentions_as_df(brand_name)
     existing_urls = set(existing_df["url"].tolist())
 
-    # headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
     headers = {
         "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
     }
 
     for sub_name in subreddits_list:
+
         sub_name = sub_name.strip()
+
         if not sub_name:
             continue
 
         try:
-           
-            url = f"https://api.reddit.com/r/{sub_name}/search.json"
 
-            params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
+            url = f"https://www.reddit.com/r/{sub_name}/new.json"
 
-            response = requests.get(url, headers=headers, params=params, timeout=20)
+            params = {"limit": 25}
+
+            # DEBUG
+            st.write("DEBUG URL:", url)
+
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=20
+            )
+
+            st.write("DEBUG Status:", response.status_code)
+
+            st.write("DEBUG Preview:", response.text[:200])
+
             response.raise_for_status()
 
             data = response.json()
+
             posts = data.get("data", {}).get("children", [])
-            
+
             st.info(f"Found {len(posts)} posts in r/{sub_name}")
 
             for item in posts:
+
                 post = item.get("data", {})
-                if not isinstance(post, dict):
+
+                text = f"{post.get('title','')} {post.get('selftext','')}"
+
+                # Filter by brand
+                if brand_name.lower() not in text.lower():
                     continue
 
                 permalink = post.get("permalink")
+
                 if not permalink:
                     continue
 
@@ -165,27 +279,28 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
                 if post_url in existing_urls or post_url in processed_urls:
                     continue
 
-                text = f"{post.get('title', '')} {post.get('selftext', '')}"
                 timestamp = datetime.fromtimestamp(
-                    post.get("created_utc", datetime.now().timestamp())
+                    post.get("created_utc", time.time())
                 )
 
                 if add_mention(
-                    brand_name, "Reddit (Public JSON)", text, post_url, timestamp
+                    brand_name,
+                    "Reddit",
+                    text,
+                    post_url,
+                    timestamp
                 ):
                     added_count += 1
                     processed_urls.add(post_url)
 
-            time.sleep(1)  
+            time.sleep(1)
 
         except Exception as e:
-            # st.error(f"Could not fetch from r/{sub_name}: {e}")
-            st.error(f"Reddit fetch failed for r/{sub_name}")
-            st.error(str(e))
-            import traceback
-            st.error(traceback.format_exc())
+
+            st.error(f"Reddit fetch failed: {e}")
 
     return added_count
+
 
 
 def generate_positive_report_summary(df):
