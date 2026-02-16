@@ -2,17 +2,12 @@ import sqlite3
 import time
 from datetime import datetime
 import json
-
 import pandas as pd
 import requests
 import streamlit as st
 import google.genai as genai
 import os
 import sys
-
-
-import os
-
 from dotenv import load_dotenv
 if os.path.exists(".env"):
 
@@ -132,7 +127,10 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     existing_df = get_all_mentions_as_df(brand_name)
     existing_urls = set(existing_df["url"].tolist())
 
-    headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
+    # headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
+    headers = {
+        "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
+    }
 
     for sub_name in subreddits_list:
         sub_name = sub_name.strip()
@@ -141,7 +139,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
         try:
            
-            url = f"https://www.reddit.com/r/{sub_name}/search.json"
+            url = f"https://old.reddit.com/r/{sub_name}/search.json"
 
             params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
 
@@ -181,7 +179,9 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
             time.sleep(1)  
 
         except Exception as e:
-            st.error(f"Could not fetch from r/{sub_name}: {e}")
+            # st.error(f"Could not fetch from r/{sub_name}: {e}")
+            st.error(f"Reddit fetch failed for r/{sub_name}")
+            st.error(str(e))
             import traceback
             st.error(traceback.format_exc())
 
