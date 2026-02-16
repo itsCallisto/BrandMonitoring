@@ -127,10 +127,10 @@ def get_all_mentions_as_df(brand_name):
 #     existing_df = get_all_mentions_as_df(brand_name)
 #     existing_urls = set(existing_df["url"].tolist())
 
-#     # headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
-#     headers = {
-#         "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
-#     }
+#     headers = {"User-Agent": "Mozilla/5.0 (BrandMonitorProject)"}
+#     # headers = {
+#     #     "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
+#     # }
 
 #     for sub_name in subreddits_list:
 #         sub_name = sub_name.strip()
@@ -139,11 +139,11 @@ def get_all_mentions_as_df(brand_name):
 
 #         try:
            
-#             # url = f"https://www.reddit.com/r/{sub_name}/search.json"
-#             url = f"https://www.reddit.com/r/{sub_name}/new"
+#             url = f"https://www.reddit.com/r/{sub_name}/search.json"
+#             # url = f"https://www.reddit.com/r/{sub_name}/new"
 
-#             # params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
-#             params = {"limit": 25}
+#             params = {"q": brand_name, "restrict_sr": 1, "sort": "new", "limit": 10}
+#             # params = {"limit": 25}
 
 #             response = requests.get(url, headers=headers, params=params, timeout=20)
 #             response.raise_for_status()
@@ -151,18 +151,9 @@ def get_all_mentions_as_df(brand_name):
 #             data = response.json()
 #             posts = data.get("data", {}).get("children", [])
 #             # DEBUG START
-#             st.write("DEBUG: Subreddit:", sub_name)
-#             st.write("DEBUG: URL:", url)
-#             st.write("DEBUG: Params:", params)
-#             st.write("DEBUG: Headers:", headers)
+           
 
-#             response = requests.get(url, headers=headers, params=params, timeout=20)
 
-#             st.write("DEBUG: Status Code:", response.status_code)
-
-#             st.write("DEBUG: Response Preview:", response.text[:300])
-
-# # DEBUG END
 
 #             response.raise_for_status()
 
@@ -220,9 +211,13 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     existing_df = get_all_mentions_as_df(brand_name)
     existing_urls = set(existing_df["url"].tolist())
 
-    headers = {
-        "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh"
-    }
+    # Use Session (VERY IMPORTANT for Streamlit Cloud)
+    session = requests.Session()
+
+    session.headers.update({
+        "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh",
+        "Accept": "application/json"
+    })
 
     for sub_name in subreddits_list:
 
@@ -233,39 +228,34 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
         try:
 
-            url = f"https://www.reddit.com/r/{sub_name}/new.json"
+            url = f"https://api.reddit.com/r/{sub_name}/new"
 
-            params = {"limit": 25}
-
-            # DEBUG
             st.write("DEBUG URL:", url)
 
-            response = requests.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=20
-            )
+            response = session.get(url, timeout=20)
 
             st.write("DEBUG Status:", response.status_code)
 
-            st.write("DEBUG Preview:", response.text[:200])
-
-            response.raise_for_status()
+            if response.status_code != 200:
+                st.error(f"Reddit blocked request: {response.status_code}")
+                continue
 
             data = response.json()
 
             posts = data.get("data", {}).get("children", [])
 
-            st.info(f"Found {len(posts)} posts in r/{sub_name}")
+            st.info(f"Fetched {len(posts)} posts from r/{sub_name}")
 
             for item in posts:
 
                 post = item.get("data", {})
 
-                text = f"{post.get('title','')} {post.get('selftext','')}"
+                title = post.get("title", "")
+                body = post.get("selftext", "")
 
-                # Filter by brand
+                text = f"{title} {body}"
+
+                # Filter by brand name
                 if brand_name.lower() not in text.lower():
                     continue
 
@@ -276,6 +266,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                 post_url = f"https://www.reddit.com{permalink}"
 
+                # Skip duplicates
                 if post_url in existing_urls or post_url in processed_urls:
                     continue
 
@@ -293,13 +284,16 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
                     added_count += 1
                     processed_urls.add(post_url)
 
-            time.sleep(1)
+            # Prevent Reddit rate limit
+            time.sleep(2)
 
         except Exception as e:
 
-            st.error(f"Reddit fetch failed: {e}")
+            st.error(f"Reddit fetch failed for r/{sub_name}")
+            st.error(str(e))
 
     return added_count
+
 
 
 
