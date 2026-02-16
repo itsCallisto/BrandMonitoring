@@ -252,6 +252,8 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                 title = post.get("title", "")
                 body = post.get("selftext", "")
+                st.write("Post title:", title)
+
 
                 text = f"{title} {body}"
 
