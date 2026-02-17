@@ -422,7 +422,9 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     base_urls = [
         "https://old.reddit.com/r/{}/new.json",
         "https://www.reddit.com/r/{}/new.json",
-        "https://redlib.kylrth.com/r/{}/new.json"
+        # "https://redlib.kylrth.com/r/{}/new.json"
+        "https://redlib.perennialte.ch/r/{}/new.json"
+
     ]
 
     for sub_name in subreddits_list:
