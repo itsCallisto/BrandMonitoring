@@ -4,3 +4,5 @@ pandas
 plotly
 google.genai
 python-dotenv
+google-generativeai
+
