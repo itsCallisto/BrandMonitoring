@@ -414,18 +414,8 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     session = requests.Session()
 
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json"
+        "User-Agent": "BrandMonitor/1.0"
     })
-
-    # Multiple sources fallback
-    base_urls = [
-        "https://old.reddit.com/r/{}/new.json",
-        "https://www.reddit.com/r/{}/new.json",
-        # "https://redlib.kylrth.com/r/{}/new.json"
-        "https://redlib.perennialte.ch/r/{}/new.json"
-
-    ]
 
     for sub_name in subreddits_list:
 
@@ -434,84 +424,74 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
         if not sub_name:
             continue
 
-        data = None
+        try:
 
-        # Try each source until success
-        for base in base_urls:
+            # Arctic Shift API (Pushshift replacement)
+            url = "https://api.pullpush.io/reddit/search/submission/"
 
-            try:
+            params = {
+                "subreddit": sub_name,
+                "q": brand_name,
+                "size": 25,
+                "sort": "desc",
+                "sort_type": "created_utc"
+            }
 
-                url = base.format(sub_name)
+            response = session.get(url, params=params, timeout=20)
 
-                response = session.get(
-                    url,
-                    params={"limit": 25, "raw_json": 1},
-                    timeout=15
+            if response.status_code != 200:
+
+                st.warning(f"Failed to fetch r/{sub_name}")
+                continue
+
+            data = response.json()
+
+            posts = data.get("data", [])
+
+            if not posts:
+                continue
+
+            for post in posts:
+
+                title = post.get("title", "")
+                body = post.get("selftext", "")
+
+                text = f"{title} {body}"
+
+                permalink = post.get("permalink")
+
+                if not permalink:
+                    continue
+
+                post_url = f"https://reddit.com{permalink}"
+
+                if post_url in existing_urls or post_url in processed_urls:
+                    continue
+
+                timestamp = datetime.fromtimestamp(
+                    post.get("created_utc", time.time())
                 )
 
-                if response.status_code == 200:
+                if add_mention(
+                    brand_name,
+                    "Reddit (PullPush)",
+                    text,
+                    post_url,
+                    timestamp
+                ):
 
-                    data = response.json()
+                    added_count += 1
+                    processed_urls.add(post_url)
 
-                    print(f"Success from: {url}")
+            time.sleep(1)
 
-                    break
+        except Exception as e:
 
-                else:
-
-                    print(f"Failed {url}: {response.status_code}")
-
-            except Exception as e:
-
-                print(f"Error {url}: {e}")
-
-        if not data:
-            st.warning(f"All sources failed for r/{sub_name}")
-            continue
-
-        posts = data.get("data", {}).get("children", [])
-
-        for item in posts:
-
-            post = item.get("data", {})
-
-            title = post.get("title", "")
-            body = post.get("selftext", "")
-
-            text = f"{title} {body}"
-
-            if brand_name.lower() not in text.lower():
-                continue
-
-            permalink = post.get("permalink")
-
-            if not permalink:
-                continue
-
-            post_url = f"https://reddit.com{permalink}"
-
-            if post_url in existing_urls or post_url in processed_urls:
-                continue
-
-            timestamp = datetime.fromtimestamp(
-                post.get("created_utc", time.time())
-            )
-
-            if add_mention(
-                brand_name,
-                "Reddit",
-                text,
-                post_url,
-                timestamp
-            ):
-
-                added_count += 1
-
-                processed_urls.add(post_url)
-
-        time.sleep(2)
+            st.error(f"Fetch failed for r/{sub_name}")
+            st.error(str(e))
 
     return added_count
+
 
 
 

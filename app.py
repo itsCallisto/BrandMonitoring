@@ -1,5 +1,5 @@
 import streamlit as st
-
+import google.generativeai as genai
 
 
 
@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 
-import google.generativeai as genai
+
 
 model = genai.GenerativeModel("gemini-2.5-flash")
 
