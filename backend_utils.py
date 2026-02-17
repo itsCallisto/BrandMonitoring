@@ -403,6 +403,97 @@ def get_all_mentions_as_df(brand_name):
 
 
 
+# def fetch_reddit_mentions(brand_name, subreddits_list):
+
+#     added_count = 0
+#     processed_urls = set()
+
+#     existing_df = get_all_mentions_as_df(brand_name)
+#     existing_urls = set(existing_df["url"].tolist())
+
+#     session = requests.Session()
+
+#     session.headers.update({
+#         "User-Agent": "BrandMonitor/1.0"
+#     })
+
+#     for sub_name in subreddits_list:
+
+#         sub_name = sub_name.strip()
+
+#         if not sub_name:
+#             continue
+
+#         try:
+
+#             # Arctic Shift API (Pushshift replacement)
+#             url = "https://api.pullpush.io/reddit/search/submission/"
+
+#             params = {
+#                 "subreddit": sub_name,
+#                 "q": brand_name,
+#                 "size": 25,
+#                 "sort": "desc",
+#                 "sort_type": "created_utc"
+#             }
+
+#             response = session.get(url, params=params, timeout=20)
+
+#             if response.status_code != 200:
+
+#                 st.warning(f"Failed to fetch r/{sub_name}")
+#                 continue
+
+#             data = response.json()
+
+#             posts = data.get("data", [])
+
+#             if not posts:
+#                 continue
+
+#             for post in posts:
+
+#                 title = post.get("title", "")
+#                 body = post.get("selftext", "")
+
+#                 text = f"{title} {body}"
+
+#                 permalink = post.get("permalink")
+
+#                 if not permalink:
+#                     continue
+
+#                 post_url = f"https://reddit.com{permalink}"
+
+#                 if post_url in existing_urls or post_url in processed_urls:
+#                     continue
+
+#                 timestamp = datetime.fromtimestamp(
+#                     post.get("created_utc", time.time())
+#                 )
+
+#                 if add_mention(
+#                     brand_name,
+#                     "Reddit (PullPush)",
+#                     text,
+#                     post_url,
+#                     timestamp
+#                 ):
+
+#                     added_count += 1
+#                     processed_urls.add(post_url)
+
+#             time.sleep(1)
+
+#         except Exception as e:
+
+#             st.error(f"Fetch failed for r/{sub_name}")
+#             st.error(str(e))
+
+#     return added_count
+
+
+
 def fetch_reddit_mentions(brand_name, subreddits_list):
 
     added_count = 0
@@ -424,9 +515,11 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
         if not sub_name:
             continue
 
+        data = None
+
+        # SOURCE 1: PullPush API
         try:
 
-            # Arctic Shift API (Pushshift replacement)
             url = "https://api.pullpush.io/reddit/search/submission/"
 
             params = {
@@ -437,60 +530,125 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
                 "sort_type": "created_utc"
             }
 
-            response = session.get(url, params=params, timeout=20)
+            response = session.get(url, params=params, timeout=15)
 
-            if response.status_code != 200:
+            if response.status_code == 200:
 
-                st.warning(f"Failed to fetch r/{sub_name}")
-                continue
+                print("Using PullPush")
 
-            data = response.json()
+                posts = response.json().get("data", [])
 
-            posts = data.get("data", [])
+                data = {
+                    "data": {
+                        "children": [{"data": post} for post in posts]
+                    }
+                }
 
-            if not posts:
-                continue
+            elif response.status_code == 429:
 
-            for post in posts:
-
-                title = post.get("title", "")
-                body = post.get("selftext", "")
-
-                text = f"{title} {body}"
-
-                permalink = post.get("permalink")
-
-                if not permalink:
-                    continue
-
-                post_url = f"https://reddit.com{permalink}"
-
-                if post_url in existing_urls or post_url in processed_urls:
-                    continue
-
-                timestamp = datetime.fromtimestamp(
-                    post.get("created_utc", time.time())
-                )
-
-                if add_mention(
-                    brand_name,
-                    "Reddit (PullPush)",
-                    text,
-                    post_url,
-                    timestamp
-                ):
-
-                    added_count += 1
-                    processed_urls.add(post_url)
-
-            time.sleep(1)
+                print("PullPush rate limited, switching to fallback")
 
         except Exception as e:
 
-            st.error(f"Fetch failed for r/{sub_name}")
-            st.error(str(e))
+            print("PullPush failed:", e)
+
+        # SOURCE 2: Reddit public JSON fallback
+        if not data:
+
+            try:
+
+                url = f"https://www.reddit.com/r/{sub_name}/new.json"
+
+                response = session.get(
+                    url,
+                    params={"limit": 25},
+                    timeout=15
+                )
+
+                if response.status_code == 200:
+
+                    print("Using Reddit JSON fallback")
+
+                    data = response.json()
+
+                else:
+
+                    print("Reddit JSON failed:", response.status_code)
+
+            except Exception as e:
+
+                print("Reddit JSON error:", e)
+
+        # SOURCE 3: Redlib fallback
+        if not data:
+
+            try:
+
+                url = f"https://redlib.perennialte.ch/r/{sub_name}/new.json"
+
+                response = session.get(url, timeout=15)
+
+                if response.status_code == 200:
+
+                    print("Using Redlib fallback")
+
+                    data = response.json()
+
+            except Exception as e:
+
+                print("Redlib failed:", e)
+
+        # If all sources fail
+        if not data:
+
+            st.warning(f"All sources failed for r/{sub_name}")
+
+            continue
+
+        posts = data.get("data", {}).get("children", [])
+
+        for item in posts:
+
+            post = item.get("data", {})
+
+            title = post.get("title", "")
+            body = post.get("selftext", "")
+
+            text = f"{title} {body}"
+
+            if brand_name.lower() not in text.lower():
+                continue
+
+            permalink = post.get("permalink")
+
+            if not permalink:
+                continue
+
+            post_url = f"https://reddit.com{permalink}"
+
+            if post_url in existing_urls or post_url in processed_urls:
+                continue
+
+            timestamp = datetime.fromtimestamp(
+                post.get("created_utc", time.time())
+            )
+
+            if add_mention(
+                brand_name,
+                "Reddit",
+                text,
+                post_url,
+                timestamp
+            ):
+
+                added_count += 1
+
+                processed_urls.add(post_url)
+
+        time.sleep(2)
 
     return added_count
+
 
 
 
