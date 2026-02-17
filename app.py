@@ -1,10 +1,66 @@
 import streamlit as st
 
+
+
+
+
+
+
+
+
 st.set_page_config(
     page_title="AI Reddit Brand Monitor",
     page_icon="🤖",
     layout="wide"
 )
+
+
+
+import google.generativeai as genai
+
+model = genai.GenerativeModel("gemini-2.5-flash")
+
+@st.cache_data(show_spinner=False)
+def translate_ui(text, target_lang):
+    
+    if target_lang == "en":
+        return text
+    
+    prompt = f"""
+    Translate the following text to {target_lang}.
+    Only return the translated text.
+
+    Text:
+    {text}
+    """
+    
+    response = model.generate_content(prompt)
+    
+    return response.text.strip()
+
+
+
+
+
+
+languages = {
+    "English": "English",
+    "Hindi": "Hindi",
+    "Malayalam": "Malayalam",
+    "Tamil": "Tamil",
+    "Telugu": "Telugu"
+}
+
+
+selected_language = st.sidebar.selectbox(
+    "🌐 Select Language",
+    list(languages.keys())
+)
+
+
+
+
+
 
 import backend_utils as bu
 import plotly.express as px
@@ -28,7 +84,13 @@ if "brand_name" not in st.session_state:
 
 
 with st.sidebar:
-    st.title("🤖 AI Brand Monitor")
+    st.title(
+    translate_ui(
+        "AI Brand Monitor",
+        languages[selected_language]
+    )
+)
+
 
     st.info("Using Google Gemini (cloud-based Generative AI)")
 
@@ -149,17 +211,44 @@ with tab1:
     with col1:
         if st.button("Positive Summary"):
             with st.spinner("Generating positive summary..."):
-                st.markdown(bu.generate_positive_report_summary(analyzed_df))
+                # st.markdown(bu.generate_positive_report_summary(analyzed_df))
+                summary = bu.generate_positive_report_summary(analyzed_df)
+
+                translated_summary = translate_ui(
+                summary,
+                languages[selected_language]
+                )
+
+                st.markdown(translated_summary)
+
 
     with col2:
         if st.button("Negative Summary"):
             with st.spinner("Generating negative summary..."):
-                st.markdown(bu.generate_negative_report_summary(analyzed_df))
+                # st.markdown(bu.generate_negative_report_summary(analyzed_df))
+                summary = bu.generate_negative_report_summary(analyzed_df)
+
+                translated_summary = translate_ui(
+                    summary,
+                    languages[selected_language]
+                )
+
+                st.markdown(translated_summary)
+
 
     with col3:
         if st.button("Suggestion Summary"):
             with st.spinner("Generating suggestion summary..."):
-                st.markdown(bu.generate_report_summary(analyzed_df))
+                # st.markdown(bu.generate_report_summary(analyzed_df))
+                summary = bu.generate_report_summary(analyzed_df)
+
+                translated_summary = translate_ui(
+                    summary,
+                    languages[selected_language]
+                )
+
+                st.markdown(translated_summary)
+
 
 with tab2:
     st.header("All Raw Mentions")
@@ -168,6 +257,16 @@ with tab2:
         use_container_width=True,
         hide_index=True
     )
+    
+    
+    
+    
+    
+
+    
+    
+
+
 
 
 

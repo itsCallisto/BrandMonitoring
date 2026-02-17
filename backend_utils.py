@@ -230,11 +230,11 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
             url = f"https://api.reddit.com/r/{sub_name}/new"
 
-            st.write("DEBUG URL:", url)
+            
 
             response = session.get(url, timeout=20)
 
-            st.write("DEBUG Status:", response.status_code)
+            
 
             if response.status_code != 200:
                 st.error(f"Reddit blocked request: {response.status_code}")
@@ -244,7 +244,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
             posts = data.get("data", {}).get("children", [])
 
-            st.info(f"Fetched {len(posts)} posts from r/{sub_name}")
+            # st.info(f"Fetched {len(posts)} posts from r/{sub_name}")
 
             for item in posts:
 
@@ -252,7 +252,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                 title = post.get("title", "")
                 body = post.get("selftext", "")
-                st.write("Post title:", title)
+                # st.write("Post title:", title)
 
 
                 text = f"{title} {body}"
@@ -498,3 +498,9 @@ def update_mention_analysis(mention_id, sentiment, topic, urgency):
             (sentiment, topic, urgency, mention_id),
         )
         conn.commit()
+
+
+
+
+
+
