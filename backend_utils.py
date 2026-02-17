@@ -299,6 +299,110 @@ def get_all_mentions_as_df(brand_name):
 
 
 
+# def fetch_reddit_mentions(brand_name, subreddits_list):
+
+#     added_count = 0
+#     processed_urls = set()
+
+#     existing_df = get_all_mentions_as_df(brand_name)
+#     existing_urls = set(existing_df["url"].tolist())
+
+#     session = requests.Session()
+
+#     # VERY IMPORTANT: full browser-like headers
+#     session.headers.update({
+#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+#         "Accept": "application/json",
+#         "Accept-Language": "en-US,en;q=0.9",
+#         "Connection": "keep-alive"
+#     })
+
+#     for sub_name in subreddits_list:
+
+#         sub_name = sub_name.strip()
+
+#         if not sub_name:
+#             continue
+
+#         try:
+#             # use .json endpoint (LESS blocking)
+#             url = f"https://old.reddit.com/r/{sub_name}/new.json"
+
+#             params = {
+#                 "limit": 25,
+#                 "raw_json": 1
+#             }
+
+#             response = session.get(
+#                 url,
+#                 params=params,
+#                 timeout=20
+#             )
+
+#             # DEBUG info
+#             print(f"Status for r/{sub_name}: {response.status_code}")
+
+#             if response.status_code == 429:
+#                 st.warning("Rate limited by Reddit. Waiting 5 seconds...")
+#                 time.sleep(5)
+#                 continue
+
+#             if response.status_code != 200:
+#                 st.warning(f"Reddit blocked r/{sub_name}: {response.status_code}")
+#                 continue
+
+#             data = response.json()
+
+#             posts = data.get("data", {}).get("children", [])
+
+#             for item in posts:
+
+#                 post = item.get("data", {})
+
+#                 title = post.get("title", "")
+#                 body = post.get("selftext", "")
+
+#                 text = f"{title} {body}"
+
+#                 if brand_name.lower() not in text.lower():
+#                     continue
+
+#                 permalink = post.get("permalink")
+
+#                 if not permalink:
+#                     continue
+
+#                 post_url = f"https://www.reddit.com{permalink}"
+
+#                 if post_url in existing_urls or post_url in processed_urls:
+#                     continue
+
+#                 timestamp = datetime.fromtimestamp(
+#                     post.get("created_utc", time.time())
+#                 )
+
+#                 if add_mention(
+#                     brand_name,
+#                     "Reddit",
+#                     text,
+#                     post_url,
+#                     timestamp
+#                 ):
+#                     added_count += 1
+#                     processed_urls.add(post_url)
+
+#             # VERY IMPORTANT: delay
+#             time.sleep(3)
+
+#         except Exception as e:
+
+#             st.error(f"Reddit fetch failed for r/{sub_name}")
+#             st.error(str(e))
+
+#     return added_count
+
+
+
 def fetch_reddit_mentions(brand_name, subreddits_list):
 
     added_count = 0
@@ -309,13 +413,17 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
     session = requests.Session()
 
-    # VERY IMPORTANT: full browser-like headers
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Connection": "keep-alive"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json"
     })
+
+    # Multiple sources fallback
+    base_urls = [
+        "https://old.reddit.com/r/{}/new.json",
+        "https://www.reddit.com/r/{}/new.json",
+        "https://redlib.kylrth.com/r/{}/new.json"
+    ]
 
     for sub_name in subreddits_list:
 
@@ -324,82 +432,85 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
         if not sub_name:
             continue
 
-        try:
-            # use .json endpoint (LESS blocking)
-            url = f"https://www.reddit.com/r/{sub_name}/new.json"
+        data = None
 
-            params = {
-                "limit": 25,
-                "raw_json": 1
-            }
+        # Try each source until success
+        for base in base_urls:
 
-            response = session.get(
-                url,
-                params=params,
-                timeout=20
-            )
+            try:
 
-            # DEBUG info
-            print(f"Status for r/{sub_name}: {response.status_code}")
+                url = base.format(sub_name)
 
-            if response.status_code == 429:
-                st.warning("Rate limited by Reddit. Waiting 5 seconds...")
-                time.sleep(5)
-                continue
-
-            if response.status_code != 200:
-                st.warning(f"Reddit blocked r/{sub_name}: {response.status_code}")
-                continue
-
-            data = response.json()
-
-            posts = data.get("data", {}).get("children", [])
-
-            for item in posts:
-
-                post = item.get("data", {})
-
-                title = post.get("title", "")
-                body = post.get("selftext", "")
-
-                text = f"{title} {body}"
-
-                if brand_name.lower() not in text.lower():
-                    continue
-
-                permalink = post.get("permalink")
-
-                if not permalink:
-                    continue
-
-                post_url = f"https://www.reddit.com{permalink}"
-
-                if post_url in existing_urls or post_url in processed_urls:
-                    continue
-
-                timestamp = datetime.fromtimestamp(
-                    post.get("created_utc", time.time())
+                response = session.get(
+                    url,
+                    params={"limit": 25, "raw_json": 1},
+                    timeout=15
                 )
 
-                if add_mention(
-                    brand_name,
-                    "Reddit",
-                    text,
-                    post_url,
-                    timestamp
-                ):
-                    added_count += 1
-                    processed_urls.add(post_url)
+                if response.status_code == 200:
 
-            # VERY IMPORTANT: delay
-            time.sleep(3)
+                    data = response.json()
 
-        except Exception as e:
+                    print(f"Success from: {url}")
 
-            st.error(f"Reddit fetch failed for r/{sub_name}")
-            st.error(str(e))
+                    break
+
+                else:
+
+                    print(f"Failed {url}: {response.status_code}")
+
+            except Exception as e:
+
+                print(f"Error {url}: {e}")
+
+        if not data:
+            st.warning(f"All sources failed for r/{sub_name}")
+            continue
+
+        posts = data.get("data", {}).get("children", [])
+
+        for item in posts:
+
+            post = item.get("data", {})
+
+            title = post.get("title", "")
+            body = post.get("selftext", "")
+
+            text = f"{title} {body}"
+
+            if brand_name.lower() not in text.lower():
+                continue
+
+            permalink = post.get("permalink")
+
+            if not permalink:
+                continue
+
+            post_url = f"https://reddit.com{permalink}"
+
+            if post_url in existing_urls or post_url in processed_urls:
+                continue
+
+            timestamp = datetime.fromtimestamp(
+                post.get("created_utc", time.time())
+            )
+
+            if add_mention(
+                brand_name,
+                "Reddit",
+                text,
+                post_url,
+                timestamp
+            ):
+
+                added_count += 1
+
+                processed_urls.add(post_url)
+
+        time.sleep(2)
 
     return added_count
+
 
 
 
