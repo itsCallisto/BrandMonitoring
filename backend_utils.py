@@ -203,6 +203,102 @@ def get_all_mentions_as_df(brand_name):
 #     return added_count
 
 
+# def fetch_reddit_mentions(brand_name, subreddits_list):
+
+#     added_count = 0
+#     processed_urls = set()
+
+#     existing_df = get_all_mentions_as_df(brand_name)
+#     existing_urls = set(existing_df["url"].tolist())
+
+#     # Use Session (VERY IMPORTANT for Streamlit Cloud)
+#     session = requests.Session()
+
+#     session.headers.update({
+#         "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh",
+#         "Accept": "application/json"
+#     })
+
+#     for sub_name in subreddits_list:
+
+#         sub_name = sub_name.strip()
+
+#         if not sub_name:
+#             continue
+
+#         try:
+
+#             url = f"https://api.reddit.com/r/{sub_name}/new"
+
+            
+
+#             response = session.get(url, timeout=20)
+
+            
+
+#             if response.status_code != 200:
+#                 st.error(f"Reddit blocked request: {response.status_code}")
+#                 continue
+
+#             data = response.json()
+
+#             posts = data.get("data", {}).get("children", [])
+
+#             # st.info(f"Fetched {len(posts)} posts from r/{sub_name}")
+
+#             for item in posts:
+
+#                 post = item.get("data", {})
+
+#                 title = post.get("title", "")
+#                 body = post.get("selftext", "")
+#                 # st.write("Post title:", title)
+
+
+#                 text = f"{title} {body}"
+
+#                 # Filter by brand name
+#                 if brand_name.lower() not in text.lower():
+#                     continue
+
+#                 permalink = post.get("permalink")
+
+#                 if not permalink:
+#                     continue
+
+#                 post_url = f"https://www.reddit.com{permalink}"
+
+#                 # Skip duplicates
+#                 if post_url in existing_urls or post_url in processed_urls:
+#                     continue
+
+#                 timestamp = datetime.fromtimestamp(
+#                     post.get("created_utc", time.time())
+#                 )
+
+#                 if add_mention(
+#                     brand_name,
+#                     "Reddit",
+#                     text,
+#                     post_url,
+#                     timestamp
+#                 ):
+#                     added_count += 1
+#                     processed_urls.add(post_url)
+
+#             # Prevent Reddit rate limit
+#             time.sleep(2)
+
+#         except Exception as e:
+
+#             st.error(f"Reddit fetch failed for r/{sub_name}")
+#             st.error(str(e))
+
+#     return added_count
+
+
+
+
 def fetch_reddit_mentions(brand_name, subreddits_list):
 
     added_count = 0
@@ -211,12 +307,14 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     existing_df = get_all_mentions_as_df(brand_name)
     existing_urls = set(existing_df["url"].tolist())
 
-    # Use Session (VERY IMPORTANT for Streamlit Cloud)
     session = requests.Session()
 
+    # VERY IMPORTANT: full browser-like headers
     session.headers.update({
-        "User-Agent": "BrandMonitoringBot/1.0 by Ashutosh Singh",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive"
     })
 
     for sub_name in subreddits_list:
@@ -227,24 +325,35 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
             continue
 
         try:
+            # use .json endpoint (LESS blocking)
+            url = f"https://www.reddit.com/r/{sub_name}/new.json"
 
-            url = f"https://api.reddit.com/r/{sub_name}/new"
+            params = {
+                "limit": 25,
+                "raw_json": 1
+            }
 
-            
+            response = session.get(
+                url,
+                params=params,
+                timeout=20
+            )
 
-            response = session.get(url, timeout=20)
+            # DEBUG info
+            print(f"Status for r/{sub_name}: {response.status_code}")
 
-            
+            if response.status_code == 429:
+                st.warning("Rate limited by Reddit. Waiting 5 seconds...")
+                time.sleep(5)
+                continue
 
             if response.status_code != 200:
-                st.error(f"Reddit blocked request: {response.status_code}")
+                st.warning(f"Reddit blocked r/{sub_name}: {response.status_code}")
                 continue
 
             data = response.json()
 
             posts = data.get("data", {}).get("children", [])
-
-            # st.info(f"Fetched {len(posts)} posts from r/{sub_name}")
 
             for item in posts:
 
@@ -252,12 +361,9 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                 title = post.get("title", "")
                 body = post.get("selftext", "")
-                # st.write("Post title:", title)
-
 
                 text = f"{title} {body}"
 
-                # Filter by brand name
                 if brand_name.lower() not in text.lower():
                     continue
 
@@ -268,7 +374,6 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                 post_url = f"https://www.reddit.com{permalink}"
 
-                # Skip duplicates
                 if post_url in existing_urls or post_url in processed_urls:
                     continue
 
@@ -286,8 +391,8 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
                     added_count += 1
                     processed_urls.add(post_url)
 
-            # Prevent Reddit rate limit
-            time.sleep(2)
+            # VERY IMPORTANT: delay
+            time.sleep(3)
 
         except Exception as e:
 
@@ -295,6 +400,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
             st.error(str(e))
 
     return added_count
+
 
 
 
