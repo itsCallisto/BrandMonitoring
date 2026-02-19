@@ -20,23 +20,21 @@ st.set_page_config(
 
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-@st.cache_data(show_spinner=False)
-def translate_ui(text, target_lang):
-    
-    if target_lang == "en":
-        return text
-    
-    prompt = f"""
-    Translate the following text to {target_lang}.
-    Only return the translated text.
+@st.cache_data(ttl=3600)
+def translate_ui(text, language):
 
-    Text:
-    {text}
-    """
-    
-    response = model.generate_content(prompt)
-    
-    return response.text.strip()
+    prompt = f"""
+Translate the following text to {language}.
+
+Return ONLY the translated text.
+Do NOT add explanation.
+
+Text:
+{text}
+"""
+
+    return bu.generate_ai_response(prompt)
+
 
 
 
@@ -92,7 +90,7 @@ with st.sidebar:
 )
 
 
-    st.info("Using Google Gemini (cloud-based Generative AI)")
+    st.info("Powered by Multi-Model AI Intelligence")
 
 
     st.header("Configuration")
@@ -120,6 +118,41 @@ with st.sidebar:
             )
             st.success(f"Added {count} new mentions.")
             st.rerun()
+            
+    if st.button("Run AI Competitive Analysis"):
+
+        competitor_name = bu.suggest_competitor(st.session_state.brand_name)
+
+        if competitor_name:
+            st.session_state.competitor = competitor_name
+            st.info(f"AI detected competitor: {competitor_name}")
+
+            bu.fetch_reddit_mentions(
+                competitor_name,
+                subreddits_list
+            )
+            competitor_df = bu.get_all_mentions_as_df(competitor_name)
+            pending_comp = competitor_df[competitor_df["sentiment"].isnull()]
+
+            if not pending_comp.empty:
+                    texts = pending_comp["text"].tolist()
+                    analyses = bu.analyze_in_batches(texts, batch_size=5)
+
+                    for i, row in enumerate(pending_comp.itertuples()):
+                        analysis = analyses[i]
+
+                        bu.update_mention_analysis(
+                            row.id,
+                            analysis.get("sentiment", "Neutral"),
+                            analysis.get("topic", "Unknown"),
+                            analysis.get("urgency", "Low")
+                        )
+
+            st.success(f"Fetched data for {competitor_name}")
+            st.rerun()
+        else:
+            st.warning("Could not detect competitor.")
+
 
    
     all_data_df = bu.get_all_mentions_as_df(st.session_state.brand_name)
@@ -134,7 +167,9 @@ with st.sidebar:
 
             texts = pending_df["text"].tolist()
             
-            analyses = bu.batch_analyze_texts(texts)
+            # analyses = bu.batch_analyze_texts(texts)
+            analyses = bu.analyze_in_batches(texts, batch_size=10)
+
             
             for i, row in enumerate(pending_df.itertuples()):
                 if i < len(analyses):
@@ -202,6 +237,65 @@ with tab1:
             labels={"x": "Topic", "y": "Count"}
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+        
+    if "competitor" in st.session_state:
+
+        competitor_name = st.session_state.competitor
+
+        competitor_df = bu.get_all_mentions_as_df(competitor_name)
+        competitor_analyzed = competitor_df.dropna(subset=["sentiment"])
+      
+        if not competitor_analyzed.empty:
+
+            brand_score = bu.calculate_competitive_score(analyzed_df)
+            competitor_score = bu.calculate_competitive_score(competitor_analyzed)
+
+            st.divider()
+            st.header("Competitive Performance")
+
+            import plotly.graph_objects as go
+
+            fig = go.Figure()
+
+            fig.add_trace(go.Bar(
+                x=[st.session_state.brand_name],
+                y=[brand_score],
+                name="Brand"
+            ))
+
+            fig.add_trace(go.Bar(
+                x=[competitor_name],
+                y=[competitor_score],
+                name="Competitor"
+            ))
+
+            
+            # max_score = max(brand_score, competitor_score, 20)
+            max_score = max(brand_score, competitor_score) + 5
+
+
+
+            fig.update_layout(
+            yaxis=dict(range=[0, max_score + 5]),
+            title="Competitive Score Comparison",
+            yaxis_title="Competitive Score",
+            xaxis_title="Brand"
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # AI Summary
+            st.header("Competition Analysis")
+
+            summary = bu.generate_competition_summary(
+                analyzed_df,
+                competitor_analyzed,
+                st.session_state.brand_name,
+                competitor_name
+            )
+
+            st.markdown(summary)
+
 
     st.divider()
     st.header("Automated Summaries")

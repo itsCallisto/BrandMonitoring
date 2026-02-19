@@ -7,6 +7,7 @@ import requests
 import streamlit as st
 import google.genai as genai
 import os
+from groq import Groq
 import sys
 from dotenv import load_dotenv
 if os.path.exists(".env"):
@@ -49,14 +50,32 @@ try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except Exception:
     API_KEY = os.getenv("GEMINI_API_KEY")
+    
+GROQ_API_KEY = None
+
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+except Exception:
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
-if not API_KEY:
-    st.error("❌ GEMINI_API_KEY not found in Streamlit secrets")
+
+# if not API_KEY:
+#     st.error("❌ GEMINI_API_KEY not found in Streamlit secrets")
+#     st.stop()
+if not GROQ_API_KEY and not API_KEY:
+    st.error("❌ No AI API key found. Add GROQ_API_KEY or GEMINI_API_KEY")
     st.stop()
+
 @st.cache_resource
 def get_gemini_client():
     return genai.Client(api_key=API_KEY)
+
+
+@st.cache_resource
+def get_groq_client():
+    return Groq(api_key=GROQ_API_KEY)
+
 
 
 
@@ -297,7 +316,7 @@ def generate_positive_report_summary(df):
         return "No positive feedback found."
 
     texts = "\n---\n".join(positive_df["text"].tolist())
-    texts = texts[:4000]  
+    texts = texts[:2000]  
 
     prompt = f"""
     You are a business analyst.
@@ -309,9 +328,8 @@ def generate_positive_report_summary(df):
     """
 
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        return response.text.strip()
+        return generate_ai_response(prompt)
+
     except Exception as e:
         return f"Error generating positive summary: {e}"
 
@@ -335,39 +353,93 @@ def generate_negative_report_summary(df):
     """
 
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        return response.text.strip()
+        return generate_ai_response(prompt)
+
     except Exception as e:
         return f"Error generating negative summary: {e}"
 
 
+
+
+
 def generate_report_summary(df):
-    relevant_df = df[df["sentiment"].isin(["Negative", "Neutral"])]
+
+    relevant_df = df[
+    (df["sentiment"] == "Negative") |
+    ((df["sentiment"] == "Neutral") & (df["urgency"] == "High"))
+]
+    
+
 
     if relevant_df.empty:
         return "No suggestions found."
+    
+    relevant_df = relevant_df.copy()
+    relevant_df["topic"] = (
+    relevant_df["topic"]
+    .dropna()
+    .str.lower()
+    .str.strip()
+)
+
+    
+
+    topic_counts = (
+        relevant_df["topic"]
+        .dropna()
+        .str.strip()
+        .value_counts()
+    )
+
+    total = topic_counts.sum()
+
+    if total == 0:
+        return "No significant issues detected."
+
+
+    top_issues = topic_counts.head(5)
+
+    issues_text = "\n".join(
+        [
+            f"• {topic} ({round(count/total*100,1)}%)"
+            for topic, count in top_issues.items()
+        ]
+    )
+
+    
 
     texts = "\n---\n".join(relevant_df["text"].tolist())
     texts = texts[:4000]
 
     prompt = f"""
-    You are a product strategist.
-    Based on the following user feedback, identify:
-    - Key suggestions
-    - Feature requests
-    - Improvement opportunities
+You are an enterprise brand intelligence analyst.
 
-    Feedback:
-    {texts}
-    """
+Explain the user problems clearly and professionally.
 
-    try:
-        client = get_gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        return response.text.strip()
-    except Exception as e:
-        return f"Error generating suggestion summary: {e}"
+Focus on:
+
+• Root causes  
+• User frustration patterns  
+• Product weaknesses  
+
+Feedback:
+{texts}
+"""
+
+    ai_analysis = generate_ai_response(prompt)
+
+   
+
+    final_output = f"""
+Most reported issues:
+{issues_text}
+
+Analysis:
+{ai_analysis}
+"""
+
+    return final_output.strip()
+
 
 
 
@@ -376,52 +448,112 @@ def batch_analyze_texts(texts):
     """
     Analyze multiple texts in a single API call using Gemini's structured output.
     Returns a list of dicts: [{"sentiment": str, "topic": str, "urgency": str}, ...]
-    """
+    
+"""
     if not texts:
         return []
     
-    texts_with_indices = "\n\n".join([f"[{i}] {text}" for i, text in enumerate(texts)])
     
+    texts_with_indices = "\n\n".join(
+    [f"[{i}] {text[:250]}" for i, text in enumerate(texts)]
+)
+
+    
+
     prompt = f"""
-Analyze each of the following texts for sentiment, topic, and urgency.
+You are a strict JSON sentiment classifier.
 
-For each text [i], provide:
-- sentiment: one of "Positive", "Negative", or "Neutral"
-- topic: main topic in 1-3 words
-- urgency: "High" or "Low" based on how urgent the feedback seems
+Classify EACH text independently.
+Do NOT average tone across texts.
+Return EXACTLY {len(texts)} JSON objects.
+If unsure, still return one object per text.
+Do NOT skip any text.
 
-Output a JSON array of objects, one for each text in order.
+Allowed sentiments:
+- Positive
+- Negative
+- Neutral
+
+Rules:
+- Complaints or problems = Negative
+- Questions about issues = Negative
+- Praise or recommendation = Positive
+- Pure factual discussion = Neutral
+
+Return ONLY valid JSON.
+No explanation.
+No markdown.
+No extra text.
+
+Format:
+[
+  {{
+    "sentiment": "Positive|Negative|Neutral",
+    "topic": "1-3 words",
+    "urgency": "High|Low"
+  }}
+]
 
 Texts:
 {texts_with_indices}
 """
+
+
+
+    
     
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config={
-                'response_mime_type': 'application/json',
-                'response_schema': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'object',
-                        'properties': {
-                            'sentiment': {'type': 'string', 'enum': ['Positive', 'Negative', 'Neutral']},
-                            'topic': {'type': 'string'},
-                            'urgency': {'type': 'string', 'enum': ['High', 'Low']}
-                        },
-                        'required': ['sentiment', 'topic', 'urgency']
-                    }
-                }
-            }
-        )
-        results = json.loads(response.text.strip())
-        return results
+
+            response = generate_ai_response(prompt, task_type="classification")
+
+            if not response or response.startswith("AI analysis"):
+                raise ValueError("AI unavailable")
+            response = response.strip()
+
+            # Safe markdown removal
+            if response.startswith("```"):
+                response = response.replace("```json", "").replace("```", "").strip()
+
+            results = json.loads(response)
+
+            return results
+
     except Exception as e:
-        st.error(f"Batch analysis error: {e}")
-        return [{"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"} for _ in texts]
+
+            st.error(f"Batch analysis error: {e}")
+
+            return [
+                {"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"}
+                for _ in texts
+            ]
+
+def analyze_in_batches(texts, batch_size=10):
+    all_results = []
+
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+
+        results = batch_analyze_texts(batch)
+
+        # 🔁 Retry once if mismatch
+        if len(results) != len(batch):
+            print("Retrying batch due to mismatch...")
+            results = batch_analyze_texts(batch)
+
+        # 🛡 Final safety fallback
+        if len(results) != len(batch):
+            print("Batch still mismatched. Filling defaults.")
+            results = [
+                {"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"}
+                for _ in batch
+            ]
+
+        all_results.extend(results)
+
+    return all_results
+
+
+
 
 
 def get_sentiment(text):
@@ -433,11 +565,7 @@ Text: {text}
 Sentiment:"""
 
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
-
-        
-        response = response.lower()
+        response = generate_ai_response(prompt).lower()
 
         if "positive" in response:
             return "Positive"
@@ -457,8 +585,8 @@ Sentiment:"""
 def get_topic(text):
     prompt = f"Identify the main topic or category of this text in 1-3 words:\n{text}"
     try:
-        client = get_gemini_client()
-        return client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+        return generate_ai_response(prompt)
+
     except:
         return "General"
 
@@ -466,8 +594,10 @@ def get_topic(text):
 def get_urgency(text):
     prompt = f"Rate the urgency level of this feedback. Reply with only 'High' or 'Low':\n{text}"
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+        response = generate_ai_response(prompt)
+
+        
+
         if "high" in response.lower():
             return "High"
         else:
@@ -488,9 +618,194 @@ def update_mention_analysis(mention_id, sentiment, topic, urgency):
             (sentiment, topic, urgency, mention_id),
         )
         conn.commit()
+        
+        
+        
+        
+        
+def generate_ai_response(prompt, task_type="general"):
+
+    model_name = "llama-3.1-8b-instant"
+
+    
+    if task_type == "premium":
+        model_name = "llama-3.3-70b-versatile"
+
+    
+    if GROQ_API_KEY:
+        try:
+            groq = get_groq_client()
+
+            response = groq.chat.completions.create(
+                model=model_name,   # ✅ USE VARIABLE HERE
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except Exception as groq_error:
+            st.error(f"Groq failed: {groq_error}")
+
+    
+    if API_KEY:
+        try:
+            gemini = get_gemini_client()
+
+            response = gemini.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+
+            return response.text.strip()
+
+        except Exception as gemini_error:
+            st.error(f"Gemini failed: {gemini_error}")
+
+    return "AI analysis temporarily unavailable."
+
+
+
+
+def suggest_competitor(brand_name):
+
+    prompt = f"""
+You are a market intelligence system.
+
+For the brand: {brand_name}
+
+Return ONLY the strongest current direct competitor brand name.
+
+Rules:
+- Must be real company
+- Must be current competitor
+- Return only the name
+- No explanation
+"""
+
+    try:
+        response = generate_ai_response(prompt)
+        competitor = response.strip().split("\n")[0]
+        return competitor
+    except:
+        return None
+
+
+
+
+def calculate_competitive_score(df):
+
+    if df.empty:
+        return 0
+
+    total = len(df)
+
+    sentiment_counts = df["sentiment"].value_counts(normalize=True)
+
+    positive = sentiment_counts.get("Positive", 0)
+    negative = sentiment_counts.get("Negative", 0)
+    neutral = sentiment_counts.get("Neutral", 0)
+
+    high_urgency = len(df[df["urgency"] == "High"]) / total
+
+    
+    sentiment_score = (
+    positive * 50
+    + neutral * 20
+    - negative * 40
+)
+
+    
+    urgency_penalty = high_urgency * 10
+
+    final_score = sentiment_score - urgency_penalty
+
+    
+    final_score = max(min(final_score, 100), 0)
+
+    return round(final_score, 2)
+
+
+
+
+def generate_competition_summary(df_a, df_b, brand_a, brand_b):
+
+    score_a = calculate_competitive_score(df_a)
+    score_b = calculate_competitive_score(df_b)
+
+    total_a = len(df_a)
+    total_b = len(df_b)
+
+    pos_a = len(df_a[df_a["sentiment"] == "Positive"])
+    neg_a = len(df_a[df_a["sentiment"] == "Negative"])
+
+    pos_b = len(df_b[df_b["sentiment"] == "Positive"])
+    neg_b = len(df_b[df_b["sentiment"] == "Negative"])
+    neutral_a = len(df_a[df_a["sentiment"] == "Neutral"])
+    neutral_b = len(df_b[df_b["sentiment"] == "Neutral"])
+
+    high_a = len(df_a[df_a["urgency"] == "High"])
+    high_b = len(df_b[df_b["urgency"] == "High"])
+
+    neg_ratio_a = neg_a / total_a if total_a else 0
+    neg_ratio_b = neg_b / total_b if total_b else 0
+
+    pos_ratio_a = pos_a / total_a if total_a else 0
+    pos_ratio_b = pos_b / total_b if total_b else 0
+    
+    positive_diff = round(pos_ratio_a - pos_ratio_b, 3)
+    negative_diff = round(neg_ratio_a - neg_ratio_b, 3)
+    urgency_diff = high_a - high_b
+    score_diff = round(score_a - score_b, 2)
+
+    
+    if score_a > score_b:
+        better_score_brand = brand_a
+    elif score_b > score_a:
+        better_score_brand = brand_b
+    else:
+        better_score_brand = "Tie"
+
+
+    prompt = f"""
+You are a product strategy analyst.
+
+Translate performance metrics into competitive insight.
+
+Important:
+- Do NOT mention ratios or numbers.
+- Do NOT sound like a data report.
+- Do NOT invent external causes.
+- Focus only on what user sentiment suggests.
+
+Brand: {brand_a}
+Competitor: {brand_b}
+
+Data summary:
+{brand_a} → Score: {score_a}, Positive ratio: {round(pos_ratio_a,2)}, 
+Negative ratio: {round(neg_ratio_a,2)}, High urgency issues: {high_a}
+
+{brand_b} → Score: {score_b}, Positive ratio: {round(pos_ratio_b,2)}, 
+Negative ratio: {round(neg_ratio_b,2)}, High urgency issues: {high_b}
+
+Write a clear competitive insight covering:
+
+1. What {brand_b} is doing better in users' eyes
+2. What {brand_a} is doing better in users' eyes
+3. How {brand_a} can strategically strengthen its position
+
+Make it natural.
+Make it product-focused.
+Make it useful for decision-making.
+No bullet metrics.
+No percentages.
+No fluff.
+"""
 
 
 
 
 
+
+    return generate_ai_response(prompt)
 
