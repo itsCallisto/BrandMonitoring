@@ -60,17 +60,17 @@ Advanced models like BERT / Transformers
 Real-time data streaming
 Alert system for sentiment spikes
 
-🎯 Use Cases
+## 🎯 Use Cases
 Brand reputation tracking
 Customer feedback analysis
 Market research
 Competitor analysis
 
-👨‍💻 Author
+## 👨‍💻 Author
 
 Ashutosh Singh
 College of Engineering Attingal
 
-⭐ Contributing
+## ⭐ Contributing
 
 Contributions are welcome! Feel free to fork this repository and submit a pull request.
