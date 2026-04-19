@@ -13,6 +13,7 @@ The system helps understand how people perceive a brand in real time, enabling d
 - NLP-based Text Processing
 - Interactive Dashboard using Streamlit
 - Trend Identification and Insights
+- Competitive Analysis
 
 ---
 
@@ -22,7 +23,7 @@ The system helps understand how people perceive a brand in real time, enabling d
 - Libraries:
   - Pandas  
   - NumPy  
-  - Scikit-learn  
+   
 
 ---
 
@@ -32,6 +33,7 @@ The system helps understand how people perceive a brand in real time, enabling d
 3. Applies NLP techniques
 4. Uses ML models for sentiment classification
 5. Displays insights through an interactive dashboard
+6. Even get the competitive analysis for brands
 
 ---
 
