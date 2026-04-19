@@ -52,8 +52,9 @@ git clone https://github.com/your-username/brand-monitoring.git
 cd brand-monitoring
 pip install -r requirements.txt
 streamlit run app.py
+```
 
-📊 Future Improvements
+## 📊 Future Improvements
 Integration with social media APIs (Twitter, Instagram)
 Advanced models like BERT / Transformers
 Real-time data streaming
