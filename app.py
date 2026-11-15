@@ -1,12 +1,11 @@
+import os
+
+import httpx
+import plotly.express as px
 import streamlit as st
-import google.generativeai as genai
 
-
-
-
-
-
-
+import backend_utils as bu
+from api_client import BrandMonitorClient
 
 st.set_page_config(
     page_title="AI Reddit Brand Monitor",
@@ -17,8 +16,6 @@ st.set_page_config(
 
 
 
-
-model = genai.GenerativeModel("gemini-2.5-flash")
 
 @st.cache_data(ttl=3600)
 def translate_ui(text, language):
@@ -60,17 +57,51 @@ selected_language = st.sidebar.selectbox(
 
 
 
-import backend_utils as bu
-import plotly.express as px
-import os
-
-# if not os.getenv("GEMINI_API_KEY"):
-#     st.error("Please set the GEMINI_API_KEY environment variable with your Google Gemini API key.")
-#     st.stop()
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
+def authenticate():
+    if st.session_state.get("api_token"):
+        client = BrandMonitorClient(API_BASE_URL, st.session_state.api_token)
+        bu.configure_api_client(client)
+        if st.sidebar.button("Log out"):
+            client.close()
+            del st.session_state["api_token"]
+            st.rerun()
+        return client
+
+    with st.sidebar:
+        st.header("API Login")
+        with st.form("auth_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            register = st.checkbox("Create a new account")
+            submitted = st.form_submit_button(
+                "Register" if register else "Login"
+            )
+
+        if submitted:
+            if not email or not password:
+                st.error("Enter an email and password.")
+                st.stop()
+            client = BrandMonitorClient(API_BASE_URL)
+            try:
+                if register:
+                    token = client.register(email, password)
+                else:
+                    token = client.login(email, password)
+            except httpx.HTTPError as error:
+                client.close()
+                st.error(f"Authentication failed: {error}")
+                st.stop()
+            st.session_state.api_token = token
+            st.rerun()
+
+    st.info("Log in to connect to the FastAPI backend.")
+    st.stop()
 
 
+_api_client = authenticate()
 bu.init_db()
 
 
@@ -167,7 +198,7 @@ with st.sidebar:
 
             texts = pending_df["text"].tolist()
             
-            # analyses = bu.batch_analyze_texts(texts)
+           
             analyses = bu.analyze_in_batches(texts, batch_size=10)
 
             
@@ -221,7 +252,7 @@ with tab1:
                 "Neutral": "blue"
             }
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width="stretch")
     else:
         st.write("No sentiment data available yet.")
 
@@ -236,7 +267,7 @@ with tab1:
             title="Top Topics",
             labels={"x": "Topic", "y": "Count"}
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width="stretch")
         
     if "competitor" in st.session_state:
 
@@ -282,7 +313,7 @@ with tab1:
             xaxis_title="Brand"
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             # AI Summary
             st.header("Competition Analysis")
@@ -305,7 +336,7 @@ with tab1:
     with col1:
         if st.button("Positive Summary"):
             with st.spinner("Generating positive summary..."):
-                # st.markdown(bu.generate_positive_report_summary(analyzed_df))
+                
                 summary = bu.generate_positive_report_summary(analyzed_df)
 
                 translated_summary = translate_ui(
@@ -319,7 +350,7 @@ with tab1:
     with col2:
         if st.button("Negative Summary"):
             with st.spinner("Generating negative summary..."):
-                # st.markdown(bu.generate_negative_report_summary(analyzed_df))
+                
                 summary = bu.generate_negative_report_summary(analyzed_df)
 
                 translated_summary = translate_ui(
@@ -333,7 +364,7 @@ with tab1:
     with col3:
         if st.button("Suggestion Summary"):
             with st.spinner("Generating suggestion summary..."):
-                # st.markdown(bu.generate_report_summary(analyzed_df))
+                
                 summary = bu.generate_report_summary(analyzed_df)
 
                 translated_summary = translate_ui(
@@ -348,7 +379,7 @@ with tab2:
     st.header("All Raw Mentions")
     st.dataframe(
         all_data_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
     

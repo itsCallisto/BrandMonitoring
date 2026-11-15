@@ -7,9 +7,13 @@ import requests
 import streamlit as st
 import google.genai as genai
 import os
+from urllib.parse import quote_plus
 from groq import Groq
 import sys
 from dotenv import load_dotenv
+from api_client import BrandMonitorClient
+import praw
+from prawcore.exceptions import PrawcoreException
 if os.path.exists(".env"):
 
     load_dotenv()  
@@ -58,14 +62,27 @@ try:
 except Exception:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
+REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
+REDDIT_USER_AGENT = os.getenv(
+    "REDDIT_USER_AGENT", "BrandMonitoring/1.0 (brand-monitoring-app)"
+)
+APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+APIFY_ACTOR_ID = os.getenv("APIFY_ACTOR_ID", "automation-lab~reddit-scraper")
+APIFY_MAX_ITEMS = int(os.getenv("APIFY_MAX_ITEMS", "25"))
 
 
-# if not API_KEY:
-#     st.error("❌ GEMINI_API_KEY not found in Streamlit secrets")
-#     st.stop()
+
 if not GROQ_API_KEY and not API_KEY:
     st.error("❌ No AI API key found. Add GROQ_API_KEY or GEMINI_API_KEY")
     st.stop()
+
+_api_client = None
+
+
+def configure_api_client(client: BrandMonitorClient):
+    global _api_client
+    _api_client = client
 
 @st.cache_resource
 def get_gemini_client():
@@ -77,6 +94,71 @@ def get_groq_client():
     return Groq(api_key=GROQ_API_KEY)
 
 
+@st.cache_resource
+def get_reddit_client():
+    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
+        return None
+    return praw.Reddit(
+        client_id=REDDIT_CLIENT_ID,
+        client_secret=REDDIT_CLIENT_SECRET,
+        user_agent=REDDIT_USER_AGENT,
+        check_for_async=False,
+    )
+
+
+def fetch_apify_posts(session, brand_name, subreddit):
+    if not APIFY_TOKEN:
+        return None
+
+    search_url = (
+        f"https://www.reddit.com/r/{subreddit}/search/?"
+        f"q={quote_plus(brand_name)}&restrict_sr=1&sort=new"
+    )
+    endpoint = (
+        f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}"
+        "/run-sync-get-dataset-items"
+    )
+    response = session.post(
+        endpoint,
+        params={"token": APIFY_TOKEN},
+        json={
+            "startUrls": [{"url": search_url}],
+            "maxItems": APIFY_MAX_ITEMS,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    items = response.json()
+    if not isinstance(items, list):
+        raise ValueError("Apify returned an unexpected dataset format")
+    return items
+
+
+def normalize_apify_post(post):
+    title = post.get("title", "")
+    body = post.get("selftext") or post.get("body") or post.get("text") or ""
+    permalink = post.get("permalink", "")
+    url = post.get("url") or post.get("postUrl") or ""
+    if not permalink and "/comments/" in url:
+        permalink = url.split("reddit.com", 1)[-1]
+    created = (
+        post.get("created_utc")
+        or post.get("createdUtc")
+        or post.get("createdAt")
+        or time.time()
+    )
+    if isinstance(created, str):
+        try:
+            created = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            created = time.time()
+    return {
+        "title": title,
+        "selftext": body,
+        "permalink": permalink,
+        "created_utc": created,
+    }
+
 
 
 
@@ -86,6 +168,8 @@ def get_groq_client():
 
 
 def init_db():
+    if _api_client is not None:
+        return
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -111,6 +195,18 @@ if "db_initialized" not in st.session_state:
 
 
 def add_mention(brand_name, source, text, url, timestamp):
+    if _api_client is not None:
+        mention = _api_client.create_mention(
+            {
+                "brand": brand_name,
+                "source": source,
+                "text": text,
+                "url": url,
+                "timestamp": timestamp.isoformat(),
+            }
+        )
+        return bool(mention)
+
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM mentions WHERE url=?", (url,))
@@ -125,6 +221,26 @@ def add_mention(brand_name, source, text, url, timestamp):
 
 
 def get_all_mentions_as_df(brand_name):
+    if _api_client is not None:
+        records = _api_client.list_mentions(brand_name)
+        columns = [
+            "id",
+            "brand",
+            "source",
+            "text",
+            "url",
+            "timestamp",
+            "sentiment",
+            "topic",
+            "urgency",
+        ]
+        df = pd.DataFrame(records)
+        for column in columns:
+            if column not in df:
+                df[column] = None
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        return df[columns]
+
     with sqlite3.connect(DB_NAME) as conn:
         df = pd.read_sql_query(
             "SELECT * FROM mentions WHERE brand=? ORDER BY timestamp DESC",
@@ -153,8 +269,9 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
     session = requests.Session()
 
     session.headers.update({
-        "User-Agent": "BrandMonitor/1.0"
+        "User-Agent": REDDIT_USER_AGENT
     })
+    reddit_client = get_reddit_client()
 
     for sub_name in subreddits_list:
 
@@ -165,40 +282,76 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
         data = None
 
-        
-        try:
-
-            url = "https://api.pullpush.io/reddit/search/submission/"
-
-            params = {
-                "subreddit": sub_name,
-                "q": brand_name,
-                "size": 25,
-                "sort": "desc",
-                "sort_type": "created_utc"
-            }
-
-            response = session.get(url, params=params, timeout=15)
-
-            if response.status_code == 200:
-
-                print("Using PullPush")
-
-                posts = response.json().get("data", [])
-
+        if APIFY_TOKEN:
+            try:
+                posts = fetch_apify_posts(session, brand_name, sub_name)
                 data = {
                     "data": {
-                        "children": [{"data": post} for post in posts]
+                        "children": [
+                            {"data": normalize_apify_post(post)}
+                            for post in posts
+                        ]
                     }
                 }
+                print("Using Apify Reddit scraper")
+            except (requests.RequestException, ValueError) as error:
+                print(f"Apify failed for r/{sub_name}: {error}")
 
-            elif response.status_code == 429:
+        if data is None and reddit_client is not None:
+            try:
+                posts = reddit_client.subreddit(sub_name).search(
+                    brand_name, sort="new", limit=25
+                )
+                data = {
+                    "data": {
+                        "children": [
+                            {
+                                "data": {
+                                    "title": post.title,
+                                    "selftext": post.selftext,
+                                    "permalink": post.permalink,
+                                    "created_utc": post.created_utc,
+                                }
+                            }
+                            for post in posts
+                        ]
+                    }
+                }
+                print("Using Reddit API")
+            except PrawcoreException as error:
+                print(f"Reddit API failed for r/{sub_name}: {error}")
 
-                print("PullPush rate limited, switching to fallback")
+        if not data:
+            try:
+                url = "https://api.pullpush.io/reddit/search/submission/"
 
-        except Exception as e:
+                params = {
+                    "subreddit": sub_name,
+                    "q": brand_name,
+                    "size": 25,
+                    "sort": "desc",
+                    "sort_type": "created_utc"
+                }
 
-            print("PullPush failed:", e)
+                response = session.get(url, params=params, timeout=15)
+
+                if response.status_code == 200:
+
+                    print("Using PullPush")
+
+                    posts = response.json().get("data", [])
+
+                    data = {
+                        "data": {
+                            "children": [{"data": post} for post in posts]
+                        }
+                    }
+
+                elif response.status_code == 429:
+                    print("PullPush rate limited, switching to fallback")
+
+            except requests.RequestException as error:
+                print("PullPush failed:", error)
 
         
         if not data:
@@ -219,8 +372,7 @@ def fetch_reddit_mentions(brand_name, subreddits_list):
 
                     data = response.json()
 
-                else:
-
+                elif response.status_code != 403:
                     print("Reddit JSON failed:", response.status_code)
 
             except Exception as e:
@@ -445,11 +597,11 @@ Analysis:
 
 
 def batch_analyze_texts(texts):
-    """
-    Analyze multiple texts in a single API call using Gemini's structured output.
-    Returns a list of dicts: [{"sentiment": str, "topic": str, "urgency": str}, ...]
+#     """
+#     Analyze multiple texts in a single API call using Gemini's structured output.
+#     Returns a list of dicts: [{"sentiment": str, "topic": str, "urgency": str}, ...]
     
-"""
+# """
     if not texts:
         return []
     
@@ -503,29 +655,36 @@ Texts:
     
     
     try:
+        response = generate_ai_response(prompt, task_type="classification")
 
-            response = generate_ai_response(prompt, task_type="classification")
+        if not response or response.startswith("AI analysis"):
+            raise ValueError("AI unavailable")
 
-            if not response or response.startswith("AI analysis"):
-                raise ValueError("AI unavailable")
-            response = response.strip()
+        response = response.strip()
 
-            # Safe markdown removal
-            if response.startswith("```"):
-                response = response.replace("```json", "").replace("```", "").strip()
+        # Remove markdown fences
+        response = response.replace("```json", "").replace("```", "").strip()
 
-            results = json.loads(response)
+        # Extract JSON array safely
+        start = response.find("[")
+        end = response.rfind("]")
 
-            return results
+        if start == -1 or end == -1:
+            raise ValueError("No valid JSON array found")
+
+        json_text = response[start:end + 1]
+
+        results = json.loads(json_text)
+
+        return results
 
     except Exception as e:
+        st.error(f"Batch analysis error: {e}")
 
-            st.error(f"Batch analysis error: {e}")
-
-            return [
-                {"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"}
-                for _ in texts
-            ]
+        return [
+            {"sentiment": "Neutral", "topic": "Unknown", "urgency": "Low"}
+            for _ in texts
+        ]
 
 def analyze_in_batches(texts, batch_size=10):
     all_results = []
@@ -607,6 +766,10 @@ def get_urgency(text):
 
 
 def update_mention_analysis(mention_id, sentiment, topic, urgency):
+    if _api_client is not None:
+        _api_client.update_mention(mention_id, sentiment, topic, urgency)
+        return
+
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -637,7 +800,7 @@ def generate_ai_response(prompt, task_type="general"):
             groq = get_groq_client()
 
             response = groq.chat.completions.create(
-                model=model_name,   # ✅ USE VARIABLE HERE
+                model=model_name,   
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0
             )

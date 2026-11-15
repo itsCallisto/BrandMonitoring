@@ -1,0 +1,7 @@
+.env
+.git
+.gitignore
+__pycache__
+*.pyc
+brand_monitor.db
+ollama-to-gemini
