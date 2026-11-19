@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: brandmonitor-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: brandmonitor-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+  - type: web
+    name: brandmonitor-frontend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT
+    envVars:
+      - key: API_BASE_URL
+        value: https://brandmonitor-api.onrender.com
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APIFY_TOKEN
+        sync: false
+      - key: APIFY_ACTOR_ID
+        value: automation-lab~reddit-scraper
+      - key: APIFY_MAX_ITEMS
+        value: "25"
+
+databases:
+  - name: brandmonitor-db
+    plan: free
+    databaseName: brandmonitor
+    user: brandmonitor
